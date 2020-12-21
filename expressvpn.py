@@ -2,7 +2,8 @@ import gi
 import os
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, GdkPixbuf
+gi.require_version("AppIndicator3", "0.1")
+from gi.repository import AppIndicator3, Gtk, GdkPixbuf
 from time import sleep
 
 from commands import (
@@ -29,10 +30,16 @@ TITLE = "ExpressVPN GUI"
 class AppForm(Gtk.Window):
     def __init__(self):
         super(Gtk.Window, self).__init__(title=TITLE)
+        # Create System tray elements
+        self.tray = AppIndicator3.Indicator.new(
+            TITLE, ICON,
+            AppIndicator3.IndicatorCategory.OTHER
+        )
+        self.tray_menu = Gtk.Menu()
+        self.tray_quit = Gtk.MenuItem(label="Quit")
+        self.tray_status = Gtk.MenuItem(label="Disconnected")
+        self.tray_open = Gtk.MenuItem(label="Open")
         # Create UI elements
-        self.set_default_size(400, 500)
-        self.set_resizable(False)
-        self.set_icon_from_file(ICON)
         self.grid = Gtk.Grid(
             orientation=Gtk.Orientation.VERTICAL,
             column_spacing=10,
@@ -48,12 +55,28 @@ class AppForm(Gtk.Window):
         self.protocol_label = Gtk.Label()
         self.protocol_combo = Gtk.ComboBoxText()
         self.network_lock_combo = Gtk.ComboBoxText()
-        # Event handlers
-        self.connect("destroy", self._close_event)
         # Configure App
         self._configure()
 
     def _configure(self):
+        # System tray
+        self.tray.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        self.tray_status.set_sensitive(False)
+        self.tray_open.connect("activate", self._focus_event)
+        self.tray_quit.connect("activate", self._quit_event)
+        self.tray_menu.append(self.tray_status)
+        self.tray_menu.append(self.tray_open)
+        self.tray_menu.append(Gtk.SeparatorMenuItem())
+        self.tray_menu.append(self.tray_quit)
+        self.tray_menu.show_all()
+        self.tray.set_menu(self.tray_menu)
+        #self.tray.activated.connect(self._focus_event)
+
+        # Main UI
+        self.set_default_size(400, 500)
+        self.set_resizable(False)
+        self.set_icon_from_file(ICON)
+        self.connect("delete-event", lambda w, e: w.hide() or True)
         preferences = get_preferences_dict()
         self._connect_button_toggle()
         self.connect_button.set_property("height-request", 48)
@@ -71,6 +94,7 @@ class AppForm(Gtk.Window):
         if is_connected():
             self.network_lock_combo.set_sensitive(False)
             self.protocol_combo.set_sensitive(False)
+            self.tray_status.set_label("Connected")
         self.location_label.set_label("Select location:")
         self.location_combo.set_property("height-request", 32)
         for item in get_locations_list():
@@ -148,6 +172,7 @@ class AppForm(Gtk.Window):
             self._sleep_1s()
 
         self._connect_button_toggle()
+        self.tray_status.set_label("Connected")
         self.connect_button.set_sensitive(True)
 
     def _disconnect_vpn(self, _):
@@ -160,6 +185,7 @@ class AppForm(Gtk.Window):
             self._sleep_1s()
 
         self._connect_button_toggle()
+        self.tray_status.set_label("Disconnected")
         self.connect_button.set_sensitive(True)
         self.network_lock_combo.set_sensitive(True)
         self.protocol_combo.set_sensitive(True)
@@ -175,8 +201,12 @@ class AppForm(Gtk.Window):
         while Gtk.events_pending():
             Gtk.main_iteration()
 
+    def _focus_event(self, _):
+        self.show_all()
+        self.present()
+
     @staticmethod
-    def _close_event(_):
+    def _quit_event(_):
         if is_connected():
             disconnect_command()
         Gtk.main_quit()
@@ -212,9 +242,10 @@ def _check_requirements():
 
 if __name__ == "__main__":
     error = _check_requirements()
+
     if error:
         error.show_all()
-    else:
-        window = AppForm()
-        window.show_all()
+        exit()
+
+    window = AppForm()
     Gtk.main()

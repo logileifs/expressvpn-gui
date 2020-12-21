@@ -137,7 +137,7 @@ def is_activated():
     output = subprocess.check_output("expressvpn status", shell=True)
     result = _escape_ansi(output.decode())
 
-    if result.startswith("Not Activated"):
+    if "Not Activated" in result:
         return False
 
     return True
@@ -147,7 +147,7 @@ def is_connected():
     output = subprocess.check_output("expressvpn status", shell=True)
     result = _escape_ansi(output.decode())
 
-    if result.startswith("Connected"):
+    if "Connected to" in result:
         return True
 
     return False

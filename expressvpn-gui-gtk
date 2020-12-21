@@ -1,2 +1,2 @@
 #!/bin/bash
-python /opt/expressvpn-gui-gtk/app.py
+python /opt/expressvpn-gui-gtk/expressvpn.py
