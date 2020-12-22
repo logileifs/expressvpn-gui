@@ -61,6 +61,7 @@ class AppForm(Gtk.Window):
     def _configure(self):
         # System tray
         self.tray.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        self.tray.set_title(TITLE)
         self.tray_status.set_sensitive(False)
         self.tray_open.connect("activate", self._focus_event)
         self.tray_quit.connect("activate", self._quit_event)
@@ -70,7 +71,6 @@ class AppForm(Gtk.Window):
         self.tray_menu.append(self.tray_quit)
         self.tray_menu.show_all()
         self.tray.set_menu(self.tray_menu)
-        #self.tray.activated.connect(self._focus_event)
 
         # Main UI
         self.set_default_size(400, 500)
