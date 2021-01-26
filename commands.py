@@ -2,6 +2,8 @@ import re
 import subprocess
 import http.client as httplib
 
+import pexpect
+
 
 def _escape_ansi(line):
     ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
@@ -123,6 +125,13 @@ def check_connection():
         return False
     finally:
         conn.close()
+
+
+def activate_command(key):
+    child = pexpect.spawn("expressvpn activate")
+    child.expect("Enter activation code: ")
+    child.sendline(key)
+    child.read()
 
 
 def connect_command(key):

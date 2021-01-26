@@ -4,6 +4,7 @@ Unofficial linux GUI for expressvpn CLI created with Python (Python GTK)
 ### Requirements
 - expressvpn
 - python-gobject
+- python-pexpect
 
 ### Installation
 - Clone the repo inside your /opt directory
