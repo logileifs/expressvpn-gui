@@ -56,9 +56,9 @@ class AppForm(Gtk.Window):
         self.protocol_combo = Gtk.ComboBoxText()
         self.network_lock_combo = Gtk.ComboBoxText()
         # Configure App
-        self._configure()
+        self.configure()
 
-    def _configure(self):
+    def configure(self):
         # System tray
         self.tray.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
         self.tray.set_title(TITLE)
@@ -209,76 +209,127 @@ class AppForm(Gtk.Window):
     def _quit_event(_):
         if is_connected():
             disconnect_command()
-        Gtk.main_quit()
+        exit()
 
 
-def _check_requirements(box_text=None, quit_event=True):
-    win = Gtk.Window(title=TITLE)
-    win.set_resizable(False)
-    win.set_icon_from_file(ICON)
-    win.connect("destroy", Gtk.main_quit)
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=6)
-    ok_button = Gtk.Button(label="OK", image=Gtk.Image(stock=Gtk.STOCK_OK))
-    if quit_event:
-        ok_button.connect("clicked", Gtk.main_quit)
-    else:
-        win.connect("delete-event", lambda w, e: w.hide() or True)
-        ok_button.connect("clicked", lambda _: win.hide() or True)
-    text = Gtk.Label()
-    box.add(text)
-    box.add(ok_button)
-    win.add(box)
+class PopUpWindow(Gtk.Window):
+    def __init__(self, action="close"):
+        super(Gtk.Window, self).__init__(title=TITLE)
+        self.action = action
+        self._configure()
 
+    def _configure(self):
+        self.set_resizable(False)
+        self.set_icon_from_file(ICON)
+        self.set_default_size(400, 150)
+        self.connect("delete-event", self._close_event)
+
+    def message_box(self, text):
+        layout = Gtk.Grid(
+            orientation=Gtk.Orientation.VERTICAL,
+            column_spacing=30,
+            row_spacing=30,
+            margin=60,
+        )
+        button_layout = Gtk.Box(spacing=10, homogeneous=True)
+        message_text = Gtk.Label()
+        message_text.set_label(text)
+        message_text.set_hexpand(True)
+        ok_button = Gtk.Button()
+        ok_button.set_label("OK")
+        ok_button.connect("clicked", self._close_event)
+        button_layout.set_margin_top(0)
+        button_layout.set_margin_bottom(0)
+        button_layout.set_margin_start(80)
+        button_layout.set_margin_end(80)
+        button_layout.pack_start(ok_button, True, True, 0)
+        layout.set_margin_top(40)
+        layout.set_margin_bottom(40)
+        layout.set_margin_start(10)
+        layout.set_margin_end(10)
+        layout.attach(message_text, 0, 0, 1, 1)
+        layout.attach_next_to(
+            button_layout, message_text, Gtk.PositionType.BOTTOM, 1, 1
+        )
+        self.add(layout)
+
+    def activation_box(self):
+        def on_ok(_):
+            code = activation_code.get_text() or "N/A"
+            activate_command(code)
+            if not is_activated():
+                activation_popup = PopUpWindow(action="close")
+                activation_popup.message_box("Invalid activation code!")
+                activation_popup.show_all()
+                return
+            else:
+                AppForm()
+                self.hide()
+                return
+
+        layout = Gtk.Grid(
+            orientation=Gtk.Orientation.VERTICAL,
+            column_spacing=25,
+            row_spacing=25,
+            margin=60,
+        )
+        button_layout = Gtk.Box(spacing=10, homogeneous=True)
+        message_text = Gtk.Label()
+        message_text.set_label("Insert your activation code:")
+        message_text.set_hexpand(True)
+        activation_code = Gtk.Entry()
+        activation_code.set_visibility(False)
+        ok_button = Gtk.Button()
+        ok_button.set_label("OK")
+        ok_button.connect("clicked", on_ok)
+        cancel_button = Gtk.Button()
+        cancel_button.set_label("Cancel")
+        cancel_button.connect("clicked", self._close_event)
+        button_layout.set_margin_top(0)
+        button_layout.set_margin_bottom(0)
+        button_layout.set_margin_start(80)
+        button_layout.set_margin_end(80)
+        button_layout.pack_start(ok_button, True, True, 0)
+        button_layout.pack_start(cancel_button, True, True, 0)
+        layout.set_margin_top(20)
+        layout.set_margin_bottom(20)
+        layout.set_margin_start(10)
+        layout.set_margin_end(10)
+        layout.attach(message_text, 0, 0, 1, 1)
+        layout.attach_next_to(
+            activation_code, message_text, Gtk.PositionType.BOTTOM, 1, 1
+        )
+        layout.attach_next_to(
+            button_layout, activation_code, Gtk.PositionType.BOTTOM, 1, 1
+        )
+        self.add(layout)
+
+    def _close_event(self, *args):
+        if self.action == "close":
+            self.hide()
+        elif self.action == "quit":
+            if is_connected():
+                disconnect_command()
+            exit()
+
+
+def _check_requirements():
     if not check_connection():
-        text.set_label("Please check your internet connection")
-        return win
+        error_window = PopUpWindow(action="quit")
+        error_window.message_box("Please check your internet connection")
+        return error_window
 
     if not check_expressvpn():
-        text.set_label("Please install expressvpn in order to use GUI")
-        return win
+        error_window = PopUpWindow(action="quit")
+        error_window.message_box("Please install expressvpn in order to use GUI")
+        return error_window
 
-    if box_text:
-        text.set_label(box_text)
-        return win
+    if not is_activated():
+        error_window = PopUpWindow(action="quit")
+        error_window.activation_box()
+        return error_window
 
     return
-
-
-def _check_activation():
-    def _on_activation_click(_):
-        code = entry.get_text()
-        activate_command(code)
-        if not is_activated():
-            error_box = _check_requirements("Invalid activation code!", False)
-            error_box.show_all()
-            return
-        success_box = _check_requirements("Activation successful!", False)
-        success_box.show_all()
-        _ = AppForm()
-        win.hide()
-        return
-
-    win = Gtk.Window(title=TITLE)
-    win.set_resizable(False)
-    win.set_icon_from_file(ICON)
-    win.set_default_size(400, 100)
-    win.connect("destroy", Gtk.main_quit)
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=6)
-    ok_button = Gtk.Button(label="OK", image=Gtk.Image(stock=Gtk.STOCK_OK))
-    ok_button.connect("clicked", _on_activation_click)
-    x_button = Gtk.Button(label="Cancel", image=Gtk.Image(stock=Gtk.STOCK_CANCEL))
-    x_button.connect("clicked", Gtk.main_quit)
-    entry_label = Gtk.Label()
-    entry_label.set_text("Insert your activation code:")
-    entry = Gtk.Entry()
-    hbox = Gtk.Box(spacing=6)
-    hbox.pack_start(ok_button, True, True, 0)
-    hbox.pack_start(x_button, True, True, 0)
-    box.add(entry_label)
-    box.add(entry)
-    box.add(hbox)
-    win.add(box)
-    win.show_all()
 
 
 if __name__ == "__main__":
@@ -286,8 +337,6 @@ if __name__ == "__main__":
 
     if error:
         error.show_all()
-    elif not is_activated():
-        _check_activation()
     else:
-        window = AppForm()
+        AppForm()
     Gtk.main()
