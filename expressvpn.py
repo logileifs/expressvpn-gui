@@ -23,8 +23,9 @@ from commands import (
 )
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-ICON = os.path.join(DIR, "icon.png")
-LOGO = os.path.join(DIR, "logo.png")
+ICON = os.path.join(DIR, "assets/icon.png")
+ICON_ACTIVE = os.path.join(DIR, "assets/icon_active.png")
+LOGO = os.path.join(DIR, "assets/logo.png")
 TITLE = "ExpressVPN GUI"
 
 
@@ -94,7 +95,10 @@ class AppForm(Gtk.Window):
         if is_connected():
             self.network_lock_combo.set_sensitive(False)
             self.protocol_combo.set_sensitive(False)
-            self.tray_status.set_label("Connected")
+            self.tray.set_icon(ICON_ACTIVE)
+            self.tray_status.set_label(
+                f"Connected: {self.location_combo.get_active_text()}"
+            )
         self.location_label.set_label("Select location:")
         self.location_combo.set_property("height-request", 32)
         for item in get_locations_list():
@@ -172,7 +176,10 @@ class AppForm(Gtk.Window):
             self._sleep_1s()
 
         self._connect_button_toggle()
-        self.tray_status.set_label("Connected")
+        self.tray.set_icon(ICON_ACTIVE)
+        self.tray_status.set_label(
+            f"Connected: {self.location_combo.get_active_text()}"
+        )
         self.connect_button.set_sensitive(True)
 
     def _disconnect_vpn(self, _):
@@ -185,6 +192,7 @@ class AppForm(Gtk.Window):
             self._sleep_1s()
 
         self._connect_button_toggle()
+        self.tray.set_icon(ICON)
         self.tray_status.set_label("Disconnected")
         self.connect_button.set_sensitive(True)
         self.network_lock_combo.set_sensitive(True)

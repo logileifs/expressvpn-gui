@@ -2,7 +2,7 @@
 Name=ExpressVPN GUI
 Comment=GUI for ExpressVPN
 Exec=python /opt/expressvpn-gui-gtk/expressvpn.py
-Icon=/opt/expressvpn-gui-gtk/icon.png
+Icon=/opt/expressvpn-gui-gtk/assets/icon.png
 Terminal=false
 Type=Application
 Encoding=UTF-8
