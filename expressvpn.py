@@ -1,31 +1,35 @@
 import gi
 import os
+from functools import partial
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("AppIndicator3", "0.1")
-from gi.repository import AppIndicator3, Gtk, GdkPixbuf
-from time import sleep
+from gi.repository import AppIndicator3, GdkPixbuf, GLib, Gtk
 
-from commands import (
+from utils import (
     activate_command,
     check_connection,
     check_expressvpn,
     connect_command,
     disconnect_command,
+    get_active_location,
     get_location_key,
     get_locations_list,
     get_protocol_list,
     get_preferences_dict,
+    get_settings,
     is_activated,
     is_connected,
     set_network_lock,
     set_protocol,
+    set_settings,
 )
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 ICON = os.path.join(DIR, "assets/icon.png")
 ICON_ACTIVE = os.path.join(DIR, "assets/icon_active.png")
 LOGO = os.path.join(DIR, "assets/logo.png")
+SETTINGS = os.path.join(DIR, "settings.dat")
 TITLE = "ExpressVPN GUI"
 
 
@@ -39,6 +43,7 @@ class AppForm(Gtk.Window):
         self.tray_menu = Gtk.Menu()
         self.tray_quit = Gtk.MenuItem(label="Quit")
         self.tray_status = Gtk.MenuItem(label="Disconnected")
+        self.tray_status_handler = None
         self.tray_open = Gtk.MenuItem(label="Open")
         # Create UI elements
         self.grid = Gtk.Grid(
@@ -56,6 +61,7 @@ class AppForm(Gtk.Window):
         self.protocol_label = Gtk.Label()
         self.protocol_combo = Gtk.ComboBoxText()
         self.network_lock_combo = Gtk.ComboBoxText()
+        self.update_timer = None
         # Configure App
         self.configure()
 
@@ -63,7 +69,6 @@ class AppForm(Gtk.Window):
         # System tray
         self.tray.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
         self.tray.set_title(TITLE)
-        self.tray_status.set_sensitive(False)
         self.tray_open.connect("activate", self._focus_event)
         self.tray_quit.connect("activate", self._quit_event)
         self.tray_menu.append(self.tray_status)
@@ -72,33 +77,24 @@ class AppForm(Gtk.Window):
         self.tray_menu.append(self.tray_quit)
         self.tray_menu.show_all()
         self.tray.set_menu(self.tray_menu)
-
         # Main UI
         self.set_default_size(400, 500)
         self.set_resizable(False)
         self.set_icon_from_file(ICON)
         self.connect("delete-event", lambda w, e: w.hide() or True)
         preferences = get_preferences_dict()
-        self._connect_button_toggle()
         self.connect_button.set_property("height-request", 48)
         self.network_lock_combo.set_property("height-request", 32)
         for item in ["default", "strict", "off"]:
             self.network_lock_combo.append(item, item)
-        self.network_lock_combo.set_active_id(preferences["network_lock"])
+        self.set_active_item(self.network_lock_combo, preferences["network_lock"])
         self.network_lock_combo.connect("changed", self._network_lock_change)
         self.protocol_label.set_label("Protocol and network lock:")
         self.protocol_combo.set_property("height-request", 32)
         for item in get_protocol_list():
             self.protocol_combo.append(item, item)
-        self.protocol_combo.set_active_id(preferences["preferred_protocol"])
+        self.set_active_item(self.protocol_combo, preferences["preferred_protocol"])
         self.protocol_combo.connect("changed", self._protocol_change)
-        if is_connected():
-            self.network_lock_combo.set_sensitive(False)
-            self.protocol_combo.set_sensitive(False)
-            self.tray.set_icon(ICON_ACTIVE)
-            self.tray_status.set_label(
-                f"Connected: {self.location_combo.get_active_text()}"
-            )
         self.location_label.set_label("Select location:")
         self.location_combo.set_property("height-request", 32)
         for item in get_locations_list():
@@ -109,6 +105,10 @@ class AppForm(Gtk.Window):
         self.protocol_label.set_margin_top(20)
         self._configure_grid()
         self.add(self.grid)
+        last_location = get_settings(SETTINGS) or self.location_combo.get_active_text()
+        self.set_active_item(self.location_combo, last_location)
+        # Update UI
+        self.update_timer = GLib.timeout_add(1000, self._update_event)
 
     def _configure_grid(self):
         self.grid.set_margin_top(40)
@@ -139,70 +139,100 @@ class AppForm(Gtk.Window):
     def _protocol_change(self, _):
         set_protocol(self.protocol_combo.get_active_text())
 
-    def _connect_button_toggle(self):
-        if is_connected():
-            self.connect_button.set_label("Disconnect")
-            try:
-                if self.connect_handler:
-                    self.connect_button.disconnect(self.connect_handler)
-            except RuntimeError:
-                pass
-            self.connect_handler = self.connect_button.connect(
-                "clicked", self._disconnect_vpn
-            )
+    def _connect_vpn(self, _, force_location=False):
+        if not force_location:
+            location = self.location_combo.get_active_text()
         else:
-            self.connect_button.set_label("Connect")
-            try:
-                if self.connect_handler:
-                    self.connect_button.disconnect(self.connect_handler)
-            except RuntimeError:
-                pass
-            self.connect_handler = self.connect_button.connect(
-                "clicked", self._connect_vpn
-            )
-
-    def _connect_vpn(self, _):
-        location = self.location_combo.get_active_text()
+            location = force_location
         self.connect_button.set_label("Connecting...")
         self.connect_button.set_sensitive(False)
-        self.network_lock_combo.set_sensitive(False)
-        self.protocol_combo.set_sensitive(False)
-        self.location_combo.set_sensitive(False)
-        self.connect_button.set_sensitive(False)
         self.grid.queue_draw()
+        if self.update_timer:
+            GLib.source_remove(self.update_timer)
+            self.update_timer = None
         connect_command(get_location_key(location))
 
         while not is_connected():
-            self._sleep_1s()
+            pass
 
-        self._connect_button_toggle()
-        self.tray.set_icon(ICON_ACTIVE)
-        self.tray_status.set_label(
-            f"Connected: {self.location_combo.get_active_text()}"
-        )
-        self.connect_button.set_sensitive(True)
+        self.update_timer = GLib.timeout_add(1000, self._update_event)
 
     def _disconnect_vpn(self, _):
         self.connect_button.set_label("Disconnecting...")
         self.connect_button.set_sensitive(False)
         self.grid.queue_draw()
+        if self.update_timer:
+            GLib.source_remove(self.update_timer)
+            self.update_timer = None
         disconnect_command()
 
         while is_connected():
-            self._sleep_1s()
+            pass
 
-        self._connect_button_toggle()
-        self.tray.set_icon(ICON)
-        self.tray_status.set_label("Disconnected")
+        self.update_timer = GLib.timeout_add(1000, self._update_event)
+
+    def _update_event(self):
+        error_window = _check_requirements(True)
+
+        if error_window:
+            if self.update_timer:
+                GLib.source_remove(self.update_timer)
+                self.update_timer = None
+            error_window.show_all()
+        try:
+            if self.connect_handler:
+                self.connect_button.disconnect(self.connect_handler)
+        except RuntimeError:
+            pass
+        try:
+            if self.tray_status_handler:
+                self.tray_status.disconnect(self.tray_status_handler)
+        except RuntimeError:
+            pass
+
+        active_location = get_active_location()
+        preferences = get_preferences_dict()
+        self.set_active_item(self.network_lock_combo, preferences["network_lock"])
+        self.set_active_item(self.protocol_combo, preferences["preferred_protocol"])
         self.connect_button.set_sensitive(True)
-        self.network_lock_combo.set_sensitive(True)
-        self.protocol_combo.set_sensitive(True)
-        self.location_combo.set_sensitive(True)
 
-    def _sleep_1s(self):
-        for i in range(10):
-            sleep(0.1)
-            self._update_gui()
+        if not active_location:
+            location = get_settings(SETTINGS) or self.location_combo.get_active_text()
+            self.connect_button.set_label("Connect")
+            self.connect_handler = self.connect_button.connect(
+                "clicked", self._connect_vpn
+            )
+            self.network_lock_combo.set_sensitive(True)
+            self.protocol_combo.set_sensitive(True)
+            self.location_combo.set_sensitive(True)
+            self.tray_status.set_label(f"Reconnect - {location}")
+            connect_vpn = partial(self._connect_vpn, force_location=location)
+            self.tray_status_handler = self.tray_status.connect("activate", connect_vpn)
+            self.tray.set_icon_full(ICON, "tray_icon")
+        else:
+            self.connect_button.set_label("Disconnect")
+            self.connect_handler = self.connect_button.connect(
+                "clicked", self._disconnect_vpn
+            )
+            self.set_active_item(self.location_combo, active_location)
+            self.network_lock_combo.set_sensitive(False)
+            self.protocol_combo.set_sensitive(False)
+            self.location_combo.set_sensitive(False)
+            self.tray_status.set_label(f"Disconnect: {self.location_combo.get_active_text()}")
+            self.tray_status_handler = self.tray_status.connect("activate", self._disconnect_vpn)
+            self.tray.set_icon_full(ICON_ACTIVE, "tray_icon_active")
+            set_settings(SETTINGS, self.location_combo.get_active_text())
+
+        self._update_gui()
+        return True
+
+    @staticmethod
+    def set_active_item(combobox, name):
+        store = combobox.get_model()
+        for i in range(len(store)):
+            row = store[i]
+            if row[0] == name:
+                combobox.set_active(i)
 
     @staticmethod
     def _update_gui():
@@ -321,8 +351,8 @@ class PopUpWindow(Gtk.Window):
             exit()
 
 
-def _check_requirements():
-    if not check_connection():
+def _check_requirements(update=False):
+    if not check_connection() and not update:
         error_window = PopUpWindow(action="quit")
         error_window.message_box("Please check your internet connection")
         return error_window
@@ -334,7 +364,10 @@ def _check_requirements():
 
     if not is_activated():
         error_window = PopUpWindow(action="quit")
-        error_window.activation_box()
+        if not update:
+            error_window.activation_box()
+        else:
+            error_window.message_box("Please activate expressvpn in order to use GUI")
         return error_window
 
     return

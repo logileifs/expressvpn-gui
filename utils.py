@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import http.client as httplib
@@ -53,6 +54,25 @@ def _get_locations_dict():
     return locations
 
 
+def get_settings(settings_file):
+    if not os.path.exists(settings_file):
+        open(settings_file, "w").close()
+        return None
+
+    with open(settings_file, "r") as f:
+        lines = f.readlines()
+
+    if len(lines) < 1 or lines[0] not in _get_locations_dict():
+        return None
+
+    return lines[0]
+
+
+def set_settings(settings_file, location):
+    with open(settings_file, "w") as f:
+        f.write(location)
+
+
 def get_locations_list():
     output = _parse_all_locations()
     locations = []
@@ -104,6 +124,18 @@ def get_location_key(location):
     key = data.get(location, "smart")
 
     return key
+
+
+def get_active_location():
+    output = subprocess.check_output("expressvpn status", shell=True)
+    result = _escape_ansi(output.decode())
+    result = result.split("\n")
+    location = None
+
+    if result[0].startswith("Connected to "):
+        location = result[0].replace("Connected to ", "")
+
+    return location
 
 
 def check_expressvpn():
