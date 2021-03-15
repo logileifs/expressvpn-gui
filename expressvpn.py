@@ -1,5 +1,6 @@
 import gi
 import os
+import threading
 from functools import partial
 
 gi.require_version("Gtk", "3.0")
@@ -61,7 +62,10 @@ class AppForm(Gtk.Window):
         self.protocol_label = Gtk.Label()
         self.protocol_combo = Gtk.ComboBoxText()
         self.network_lock_combo = Gtk.ComboBoxText()
+        self.thread = None
         self.update_timer = None
+        self.block_update = False
+        self.updates = {}
         # Configure App
         self.configure()
 
@@ -108,7 +112,9 @@ class AppForm(Gtk.Window):
         last_location = get_settings(SETTINGS) or self.location_combo.get_active_text()
         self.set_active_item(self.location_combo, last_location)
         # Update UI
-        self.update_timer = GLib.timeout_add(1000, self._update_event)
+        self._update_event()
+        self._update_ui()
+        self.update_timer = GLib.timeout_add(1000, self._update_ui)
 
     def _configure_grid(self):
         self.grid.set_margin_top(40)
@@ -134,10 +140,16 @@ class AppForm(Gtk.Window):
         )
 
     def _network_lock_change(self, _):
-        set_network_lock(self.network_lock_combo.get_active_text())
+        self.block_update = True
+        set_protocol(self.network_lock_combo.get_active_text())
+        self.block_update = False
+        self._update_event()
 
     def _protocol_change(self, _):
+        self.block_update = True
         set_protocol(self.protocol_combo.get_active_text())
+        self.block_update = False
+        self._update_event()
 
     def _connect_vpn(self, _, force_location=False):
         if not force_location:
@@ -146,39 +158,42 @@ class AppForm(Gtk.Window):
             location = force_location
         self.connect_button.set_label("Connecting...")
         self.connect_button.set_sensitive(False)
+        self.network_lock_combo.set_sensitive(False)
+        self.protocol_combo.set_sensitive(False)
+        self.location_combo.set_sensitive(False)
         self.grid.queue_draw()
-        if self.update_timer:
-            GLib.source_remove(self.update_timer)
-            self.update_timer = None
+        self.block_update = True
         connect_command(get_location_key(location))
 
         while not is_connected():
+            self._update_gui()
             pass
 
-        self.update_timer = GLib.timeout_add(1000, self._update_event)
+        self.block_update = False
+        self._update_event()
 
     def _disconnect_vpn(self, _):
         self.connect_button.set_label("Disconnecting...")
         self.connect_button.set_sensitive(False)
         self.grid.queue_draw()
-        if self.update_timer:
-            GLib.source_remove(self.update_timer)
-            self.update_timer = None
+        self.block_update = True
         disconnect_command()
 
         while is_connected():
+            self._update_gui()
             pass
 
-        self.update_timer = GLib.timeout_add(1000, self._update_event)
+        self.block_update = False
+        self._update_event()
 
-    def _update_event(self):
-        error_window = _check_requirements(True)
+    def _update_ui(self):
+        if self.block_update:
+            return True
 
-        if error_window:
-            if self.update_timer:
-                GLib.source_remove(self.update_timer)
-                self.update_timer = None
-            error_window.show_all()
+        errors = self.updates.get("errors")
+        if errors:
+            self.block_update = True
+            errors.show_all()
         try:
             if self.connect_handler:
                 self.connect_button.disconnect(self.connect_handler)
@@ -190,14 +205,17 @@ class AppForm(Gtk.Window):
         except RuntimeError:
             pass
 
-        active_location = get_active_location()
-        preferences = get_preferences_dict()
-        self.set_active_item(self.network_lock_combo, preferences["network_lock"])
-        self.set_active_item(self.protocol_combo, preferences["preferred_protocol"])
+        active_location = self.updates.get("active_location")
+        preferences = self.updates.get("preferences")
+
+        if preferences:
+            self.set_active_item(self.network_lock_combo, preferences["network_lock"])
+            self.set_active_item(self.protocol_combo, preferences["preferred_protocol"])
+
         self.connect_button.set_sensitive(True)
 
         if not active_location:
-            location = get_settings(SETTINGS) or self.location_combo.get_active_text()
+            location = self.updates.get("location")
             self.connect_button.set_label("Connect")
             self.connect_handler = self.connect_button.connect(
                 "clicked", self._connect_vpn
@@ -218,13 +236,37 @@ class AppForm(Gtk.Window):
             self.network_lock_combo.set_sensitive(False)
             self.protocol_combo.set_sensitive(False)
             self.location_combo.set_sensitive(False)
-            self.tray_status.set_label(f"Disconnect: {self.location_combo.get_active_text()}")
-            self.tray_status_handler = self.tray_status.connect("activate", self._disconnect_vpn)
+            self.tray_status.set_label(
+                f"Disconnect: {self.location_combo.get_active_text()}"
+            )
+            self.tray_status_handler = self.tray_status.connect(
+                "activate", self._disconnect_vpn
+            )
             self.tray.set_icon_full(ICON_ACTIVE, "tray_icon_active")
             set_settings(SETTINGS, self.location_combo.get_active_text())
 
         self._update_gui()
         return True
+
+    def _update_event(self):
+        if self.block_update:
+            return
+
+        error_window = _check_requirements(True)
+
+        if error_window:
+            self.updates["errors"] = error_window
+            return
+
+        active_location = get_active_location()
+        preferences = get_preferences_dict()
+        location = get_settings(SETTINGS) or self.location_combo.get_active_text()
+        self.updates = {
+            "active_location": active_location,
+            "preferences": preferences,
+            "location": location,
+        }
+        self.thread = threading.Timer(1, self._update_event).start()
 
     @staticmethod
     def set_active_item(combobox, name):
@@ -243,8 +285,8 @@ class AppForm(Gtk.Window):
         self.show_all()
         self.present()
 
-    @staticmethod
-    def _quit_event(_):
+    def _quit_event(self, _):
+        self.block_update = True
         if is_connected():
             disconnect_command()
         exit()
