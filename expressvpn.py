@@ -1,6 +1,5 @@
 import gi
 import os
-import threading
 from functools import partial
 
 gi.require_version("Gtk", "3.0")
@@ -24,6 +23,7 @@ from utils import (
     set_network_lock,
     set_protocol,
     set_settings,
+    RepeatingTimer,
 )
 
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +32,7 @@ ICON_ACTIVE = os.path.join(DIR, "assets/icon_active.png")
 LOGO = os.path.join(DIR, "assets/logo.png")
 SETTINGS = os.path.join(DIR, "settings.dat")
 TITLE = "ExpressVPN GUI"
+UPDATE_INTERVAL = 2
 
 
 class AppForm(Gtk.Window):
@@ -64,7 +65,8 @@ class AppForm(Gtk.Window):
         self.network_lock_combo = Gtk.ComboBoxText()
         self.thread = None
         self.update_timer = None
-        self.block_update = False
+        self.block_update_ui = False
+        self.block_update_event = False
         self.updates = {}
         # Configure App
         self.configure()
@@ -114,7 +116,9 @@ class AppForm(Gtk.Window):
         # Update UI
         self._update_event()
         self._update_ui()
-        self.update_timer = GLib.timeout_add(1000, self._update_ui)
+        self.thread = RepeatingTimer(UPDATE_INTERVAL, self._update_event)
+        self.thread.start()
+        self.update_timer = GLib.timeout_add_seconds(UPDATE_INTERVAL, self._update_ui)
 
     def _configure_grid(self):
         self.grid.set_margin_top(40)
@@ -140,15 +144,15 @@ class AppForm(Gtk.Window):
         )
 
     def _network_lock_change(self, _):
-        self.block_update = True
-        set_protocol(self.network_lock_combo.get_active_text())
-        self.block_update = False
+        self.block_update_ui = True
+        set_network_lock(self.network_lock_combo.get_active_text())
+        self.block_update_ui = False
         self._update_event()
 
     def _protocol_change(self, _):
-        self.block_update = True
+        self.block_update_ui = True
         set_protocol(self.protocol_combo.get_active_text())
-        self.block_update = False
+        self.block_update_ui = False
         self._update_event()
 
     def _connect_vpn(self, _, force_location=False):
@@ -162,37 +166,36 @@ class AppForm(Gtk.Window):
         self.protocol_combo.set_sensitive(False)
         self.location_combo.set_sensitive(False)
         self.grid.queue_draw()
-        self.block_update = True
+        self.block_update_ui = True
         connect_command(get_location_key(location))
 
-        while not is_connected():
+        while not self.updates["active_location"]:
             self._update_gui()
-            pass
 
-        self.block_update = False
+        self.block_update_ui = False
         self._update_event()
 
     def _disconnect_vpn(self, _):
         self.connect_button.set_label("Disconnecting...")
         self.connect_button.set_sensitive(False)
         self.grid.queue_draw()
-        self.block_update = True
+        self.block_update_ui = True
         disconnect_command()
 
-        while is_connected():
+        while self.updates["active_location"]:
             self._update_gui()
-            pass
 
-        self.block_update = False
+        self.block_update_ui = False
         self._update_event()
 
     def _update_ui(self):
-        if self.block_update:
+        if self.block_update_ui:
             return True
 
         errors = self.updates.get("errors")
         if errors:
-            self.block_update = True
+            self.block_update_ui = True
+            self.block_update_event = True
             errors.show_all()
         try:
             if self.connect_handler:
@@ -249,7 +252,7 @@ class AppForm(Gtk.Window):
         return True
 
     def _update_event(self):
-        if self.block_update:
+        if self.block_update_event:
             return
 
         error_window = _check_requirements(True)
@@ -266,7 +269,6 @@ class AppForm(Gtk.Window):
             "preferences": preferences,
             "location": location,
         }
-        self.thread = threading.Timer(1, self._update_event).start()
 
     @staticmethod
     def set_active_item(combobox, name):
@@ -286,7 +288,8 @@ class AppForm(Gtk.Window):
         self.present()
 
     def _quit_event(self, _):
-        self.block_update = True
+        self.block_update_event = True
+        self.thread.cancel()
         if is_connected():
             disconnect_command()
         exit()

@@ -2,8 +2,26 @@ import os
 import re
 import subprocess
 import http.client as httplib
+from threading import Event, Timer
 
 import pexpect
+
+
+class RepeatingTimer(Timer):
+    def __init__(self, interval, function, *args, **kwargs):
+        super(RepeatingTimer, self).__init__(interval, function, *args, **kwargs)
+        self.args = args
+        self.kwargs = kwargs
+        self.function = function
+        self.interval = interval
+        self.finished = Event()
+
+    def run(self):
+        while not self.finished.is_set():
+            self.finished.wait(self.interval)
+            self.function(*self.args, **self.kwargs)
+
+        self.finished.set()
 
 
 def _escape_ansi(line):
