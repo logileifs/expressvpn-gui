@@ -44,6 +44,8 @@ def _parse_all_locations():
     for key, element in enumerate(results):
         new_el = []
         element = list(filter(None, element))
+        if len(element) > 0:
+            element[0] = element[0].split()[0]
 
         for el in element:
             el_break = el.split(") ", 1)[-1]
