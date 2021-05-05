@@ -9,6 +9,7 @@ from gi.repository import AppIndicator3, GdkPixbuf, GLib, Gtk
 from utils import (
     activate_command,
     check_connection,
+    check_daemon,
     check_expressvpn,
     connect_command,
     disconnect_command,
@@ -405,6 +406,11 @@ def _check_requirements(update=False):
     if not check_expressvpn():
         error_window = PopUpWindow(action="quit")
         error_window.message_box("Please install expressvpn in order to use GUI")
+        return error_window
+
+    if not check_daemon():
+        error_window = PopUpWindow(action="quit")
+        error_window.message_box("Please make sure that expressvpn daemon is running")
         return error_window
 
     if not is_activated():

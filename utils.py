@@ -162,10 +162,19 @@ def check_expressvpn():
     output = subprocess.check_output("expressvpn -v", shell=True)
     result = _escape_ansi(output.decode())
 
-    if result.startswith("expressvpn version"):
+    if "expressvpn version" in result:
         return True
 
     return False
+
+
+def check_daemon():
+    try:
+        _ = subprocess.check_output("expressvpn status", shell=True)
+    except subprocess.CalledProcessError:
+        return False
+
+    return True
 
 
 def check_connection():
@@ -195,6 +204,9 @@ def disconnect_command():
 
 
 def is_activated():
+    if not check_daemon():
+        return False
+
     output = subprocess.check_output("expressvpn status", shell=True)
     result = _escape_ansi(output.decode())
 
@@ -205,6 +217,9 @@ def is_activated():
 
 
 def is_connected():
+    if not check_daemon():
+        return False
+
     output = subprocess.check_output("expressvpn status", shell=True)
     result = _escape_ansi(output.decode())
 
