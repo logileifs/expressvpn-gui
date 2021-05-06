@@ -178,9 +178,9 @@ def check_daemon():
 
 
 def check_connection():
-    conn = httplib.HTTPConnection("www.example.com", timeout=5)
+    conn = httplib.HTTPSConnection("google.com", timeout=5)
     try:
-        conn.request("HEAD", "/")
+        conn.request("GET", "/")
         return True
     except Exception:
         return False

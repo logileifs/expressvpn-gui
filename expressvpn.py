@@ -193,11 +193,13 @@ class AppForm(Gtk.Window):
         if self.block_update_ui:
             return True
 
-        errors = self.updates.get("errors")
-        if errors:
+        err_type = self.updates.get("error_type")
+        if err_type:
             self.block_update_ui = True
             self.block_update_event = True
-            errors.show_all()
+            window = get_error_window(err_type, update=True)
+            window.show_all()
+
         try:
             if self.connect_handler:
                 self.connect_button.disconnect(self.connect_handler)
@@ -256,10 +258,10 @@ class AppForm(Gtk.Window):
         if self.block_update_event:
             return
 
-        error_window = _check_requirements(True)
-
-        if error_window:
-            self.updates["errors"] = error_window
+        err_type = check_errors(update=True)
+        if err_type:
+            self.updates["error_type"] = err_type
+            self.thread.cancel()
             return
 
         active_location = get_active_location()
@@ -349,7 +351,6 @@ class PopUpWindow(Gtk.Window):
             else:
                 AppForm()
                 self.hide()
-                return
 
         layout = Gtk.Grid(
             orientation=Gtk.Orientation.VERTICAL,
@@ -397,38 +398,50 @@ class PopUpWindow(Gtk.Window):
             exit()
 
 
-def _check_requirements(update=False):
+def check_errors(update=False):
     if not check_connection() and not update:
-        error_window = PopUpWindow(action="quit")
-        error_window.message_box("Please check your internet connection")
-        return error_window
-
+        return "internet_connection_error"
     if not check_expressvpn():
-        error_window = PopUpWindow(action="quit")
-        error_window.message_box("Please install expressvpn in order to use GUI")
-        return error_window
-
+        return "expressvpn_error"
     if not check_daemon():
-        error_window = PopUpWindow(action="quit")
-        error_window.message_box("Please make sure that expressvpn daemon is running")
-        return error_window
-
+        return "expressvpn_daemon_error"
     if not is_activated():
-        error_window = PopUpWindow(action="quit")
-        if not update:
-            error_window.activation_box()
-        else:
-            error_window.message_box("Please activate expressvpn in order to use GUI")
-        return error_window
+        return "expressvpn_activation_error"
 
-    return
+
+def get_error_window(error, update=False):
+    if error == "internet_connection_error":
+        window = PopUpWindow(action="quit")
+        window.message_box("Please check your internet connection")
+        return window
+
+    if error == "expressvpn_error":
+        window = PopUpWindow(action="quit")
+        window.message_box("Please install expressvpn in order to use GUI")
+        return window
+
+    if error == "expressvpn_daemon_error":
+        window = PopUpWindow(action="quit")
+        window.message_box("Please make sure that expressvpn daemon is running")
+        return window
+
+    if error == "expressvpn_activation_error":
+        if not update:
+            window = PopUpWindow(action="quit")
+            window.activation_box()
+        else:
+            window = PopUpWindow(action="quit")
+            window.message_box("Please restart the GUI in order to activate expressvpn")
+        return window
 
 
 if __name__ == "__main__":
-    error = _check_requirements()
+    error_type = check_errors()
 
-    if error:
-        error.show_all()
+    if error_type:
+        error_window = get_error_window(error_type)
+        error_window.show_all()
     else:
         AppForm()
+
     Gtk.main()
