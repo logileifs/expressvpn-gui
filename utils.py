@@ -152,8 +152,10 @@ def get_active_location():
     result = result.split("\n")
     location = None
 
-    if result[0].startswith("Connected to "):
-        location = result[0].replace("Connected to ", "")
+    for res in result:
+        if not res.startswith("Connected to "):
+            continue
+        location = res.replace("Connected to ", "")
 
     return location
 
